@@ -1,0 +1,274 @@
+#Tim Schisler
+#Math 4005 - 01
+#Fall 2017
+#Final Project
+
+##Preparatory Work
+```{r}
+library(lattice)
+library(DAAG)
+library(MASS)
+library(boot)
+library(rpart)
+library(randomForest)
+```
+
+###Import the data into a data frame; add a binary response.
+```{r}
+wineData <- read.table("winequality_red.csv", header = TRUE, sep = ",")
+binQ <- wineData$quality
+for (i in 1:1599) {
+  if(wineData$quality[i]>=6) binQ[i]=1
+  else binQ[i] = 0
+}
+wineData <- cbind(wineData, binQ)
+names(wineData)[1] <- "fixed.acidity"
+names(wineData)
+```
+
+###Perform initial assessment of the data.
+```{r}
+with(wineData, plot(binQ ~ fixed.acidity+volatile.acidity+citric.acid+residual.sugar+chlorides+free.sulfur.dioxide+total.sulfur.dioxide+density+pH+sulphates+alcohol))
+```
+
+```{r}
+pairs(wineData)
+```
+Log transformations appear useful for some of the predictors, namely
+residual sugar, chlorides, free and total sulfur dioxide, and sulphates.
+
+###Partition the data into 5 folds for later use.
+```{r}
+rand <- sample(1:1599)%%5 + 1
+fold1 <- (1:1599)[rand == 1]
+fold2 <- (1:1599)[rand == 2]
+fold3 <- (1:1599)[rand == 3]
+fold4 <- (1:1599)[rand == 4]
+fold5 <- (1:1599)[rand == 5]
+```
+
+
+
+
+#Part 1: Logistic Regression
+
+###Fit a full model first.
+```{r}
+wine.glm.A0 <- glm(binQ ~ fixed.acidity+volatile.acidity+citric.acid+log(residual.sugar)+log(chlorides)+log(free.sulfur.dioxide)+log(total.sulfur.dioxide)+density+pH+log(sulphates)+alcohol, family = binomial, data = wineData)
+summary(wine.glm.A0)
+```
+
+###First, throw out predictors with p-value >0.5
+```{r}
+wine.glm.A1 <- glm(binQ ~ -1+volatile.acidity+citric.acid+log(chlorides)+log(free.sulfur.dioxide)+log(total.sulfur.dioxide)+log(sulphates)+alcohol, family = binomial, data = wineData)
+summary(wine.glm.A1)
+termplot(wine.glm.A1)
+```
+
+###Looks like we can also ignore chlorides...
+```{r}
+wine.glm.A3 <- glm(binQ ~ -1+volatile.acidity+citric.acid+log(free.sulfur.dioxide)+log(total.sulfur.dioxide)+log(sulphates)+alcohol, family = binomial, data = wineData)
+summary(wine.glm.A3)
+termplot(wine.glm.A3)
+```
+
+###...and probably also citric acid.
+```{r}
+wine.glm.A <- glm(binQ ~ -1+volatile.acidity+log(free.sulfur.dioxide)+log(total.sulfur.dioxide)+log(sulphates)+alcohol, family = binomial, data = wineData)
+summary(wine.glm.A)
+termplot(wine.glm.A)
+```
+
+This model looks pretty good! Let's use the results to write a formula for the model:
+
+###The model formula:
+Filling in the coefficients calculated by the model, we can write the vector product XBeta = -3.40(vol.acid)+0.64log(freeSO2)-1.18log(totalSO2)+2.27log(sulphates)+0.54(alcohol)
+
+Then we let y stand for P(Y=1|X,Beta):
+y = exp(XBeta) / 1+exp(XBeta)
+
+Thus, y represents the "odds" that a wine with predictor vector X will have high quality (i.e. binQ == 1).
+
+###Find 95% confidence intervals for the coefficients, using first bootstrapping, then direct calculation.
+
+```{r}
+coeff.fun <- function(wineData, index) {
+  resample <- wineData[index, ]
+  wine.glm.boot <- glm(binQ ~ -1+volatile.acidity+log(free.sulfur.dioxide)+log(total.sulfur.dioxide)+log(sulphates)+alcohol, family = binomial, data = resample)
+  wine.glm.boot$coef
+}
+```
+
+```{r}
+coeff.boot <- boot(data = wineData, statistic = coeff.fun, R = 500)
+boot.ci(coeff.boot, conf = 0.95, type = "perc")
+```
+
+```{r}
+( conf.intv <- c(wine.glm.A$coefficients[1] + 1.64*wine.glm.A$residuals[1], wine.glm.A$coefficients[1] - 1.64*wine.glm.A$residuals[1]) )
+```
+
+
+
+#Part 2: Proportional Odds Regression
+
+###Fit a proportional odds logistic regression model.
+```{r}
+wine.polr.A0 <- polr(as.factor(quality) ~ fixed.acidity+volatile.acidity+citric.acid+log(residual.sugar)+log(chlorides)+log(free.sulfur.dioxide)+log(total.sulfur.dioxide)+density+pH+log(sulphates)+alcohol, data = wineData, Hess = TRUE)
+summary(wine.polr.A0)
+```
+
+
+
+###Write a function to implement the bagging method on the proportional odds regression.
+```{r}
+bag.pro <- function(predictors, B) {
+  
+}
+```
+
+
+
+###Perform 5-fold cross-validation on the proportional-odds and bagged proportional-odds methods. Compare MSE.
+```{r}
+wine.polr.cross1 <- polr(as.factor(quality) ~ fixed.acidity+volatile.acidity+citric.acid+log(residual.sugar)+log(chlorides)+log(free.sulfur.dioxide)+log(total.sulfur.dioxide)+density+pH+log(sulphates)+alcohol, data = wineData[-fold1, ], Hess = TRUE)
+cross.pred.polr.1 <- predict(wine.polr.cross1, newdata=wineData[fold1, ], type = )
+
+wine.polr.cross2 <- polr(as.factor(quality) ~ fixed.acidity+volatile.acidity+citric.acid+log(residual.sugar)+log(chlorides)+log(free.sulfur.dioxide)+log(total.sulfur.dioxide)+density+pH+log(sulphates)+alcohol, data = wineData[-fold2, ], Hess = TRUE)
+cross.pred.polr.2 <- predict(wine.polr.cross2, newdata=wineData[fold2, ])
+
+wine.polr.cross3 <- polr(as.factor(quality) ~ fixed.acidity+volatile.acidity+citric.acid+log(residual.sugar)+log(chlorides)+log(free.sulfur.dioxide)+log(total.sulfur.dioxide)+density+pH+log(sulphates)+alcohol, data = wineData[-fold3, ], Hess = TRUE)
+cross.pred.polr.3 <- predict(wine.polr.cross3, newdata=wineData[fold3, ])
+
+wine.polr.cross4 <- polr(as.factor(quality) ~ fixed.acidity+volatile.acidity+citric.acid+log(residual.sugar)+log(chlorides)+log(free.sulfur.dioxide)+log(total.sulfur.dioxide)+density+pH+log(sulphates)+alcohol, data = wineData[-fold4, ], Hess = TRUE)
+cross.pred.polr.4 <- predict(wine.polr.cross4, newdata=wineData[fold4, ])
+
+wine.polr.cross5 <- polr(as.factor(quality) ~ fixed.acidity+volatile.acidity+citric.acid+log(residual.sugar)+log(chlorides)+log(free.sulfur.dioxide)+log(total.sulfur.dioxide)+density+pH+log(sulphates)+alcohol, data = wineData[-fold5, ], Hess = TRUE)
+cross.pred.polr.5 <- predict(wine.polr.cross5, newdata=wineData[fold5, ])
+
+#cross.pred.polr.1 <- (wineData[fold1, ]$quality - as.vector.factor(cross.pred.polr.1) )^ 2
+#cross.pred.polr.2 <- (wineData[fold2, ]$quality - cross.pred.polr.2) ^ 2
+#cross.pred.polr.3 <- (wineData[fold3, ]$quality - cross.pred.polr.3) ^ 2
+#cross.pred.polr.4 <- (wineData[fold4, ]$quality - cross.pred.polr.4) ^ 2
+#cross.pred.polr.5 <- (wineData[fold5, ]$quality - cross.pred.polr.5) ^ 2
+##These calculations produce an error
+```
+
+```{r}
+
+```
+
+
+
+#Part 3: Tree Regression
+
+###Find the appropriate complexity parameter, and use it to build the best regression tree.
+
+I'll start with a super-tiny CP value, then check the plots.
+```{r}
+wine.tree.0 <- rpart(quality ~ fixed.acidity+volatile.acidity+citric.acid+log(residual.sugar)+log(chlorides)+log(free.sulfur.dioxide)+log(total.sulfur.dioxide)+density+pH+log(sulphates)+alcohol, data = wineData, method = "anova", cp=0.001)
+plot(wine.tree.0, uniform = TRUE)
+text(wine.tree.0)
+```
+```{r}
+plotcp(wine.tree.0)
+#printcp(wine.tree.0)
+```
+
+Looks like the CP value that best minimizes error is somewhere between 0.002 and 0.009; let's grab it.
+```{r}
+xerr <- wine.tree.0$cptable[,'xerror']
+min.xerr <- which(xerr == min(xerr))
+(my.cp <- wine.tree.0$cptable[min.xerr,'CP'])
+```
+
+I'll build a new tree using that CP value.
+```{r}
+wine.tree <- rpart(quality ~ fixed.acidity+volatile.acidity+citric.acid+log(residual.sugar)+log(chlorides)+log(free.sulfur.dioxide)+log(total.sulfur.dioxide)+density+pH+log(sulphates)+alcohol, data = wineData, method = "anova", cp=my.cp)
+plot(wine.tree, uniform = TRUE)
+text(wine.tree, digits = 3)
+```
+```{r}
+plotcp(wine.tree)
+printcp(wine.tree)
+```
+
+This tree is much less complex than the original. It also predicts quality in a range 4.0-6.81, better than the old linear model from the midterm.
+
+```{r}
+wine.tree$variable.importance
+```
+
+
+###Bootstrap a 95% confidence interval for fitted values.
+```{r}
+tree.boot.fn <- function(predictors) {
+  
+}
+#fitted.boot <- boot(predictors, statistic = tree.boot.fn, R = 500)
+#boot.ci(fitted.boot, conf = 0.95)
+```
+
+
+
+###Write a function to implement the random forests method. Evaluate predictor importance.
+```{r}
+wine.forest <- randomForest(quality ~ ., data = wineData[,-13], mtry = 6, importance = TRUE)
+```
+```{r}
+wine.forest$importance
+```
+
+The three purest predictors also have the biggest error reductions: alcohol, volatile acidity, and sulphates
+
+###Compare the tree method with the random forest method using 5-fold cross-validation.
+
+```{r}
+wine.tree.cross.1 <- rpart(quality ~ fixed.acidity+volatile.acidity+citric.acid+log(residual.sugar)+log(chlorides)+log(free.sulfur.dioxide)+log(total.sulfur.dioxide)+density+pH+log(sulphates)+alcohol, data = wineData[-fold1, ], method = "anova", cp=my.cp)
+
+wine.tree.cross.2 <- rpart(quality ~ fixed.acidity+volatile.acidity+citric.acid+log(residual.sugar)+log(chlorides)+log(free.sulfur.dioxide)+log(total.sulfur.dioxide)+density+pH+log(sulphates)+alcohol, data = wineData[-fold2, ], method = "anova", cp=my.cp)
+
+wine.tree.cross.3 <- rpart(quality ~ fixed.acidity+volatile.acidity+citric.acid+log(residual.sugar)+log(chlorides)+log(free.sulfur.dioxide)+log(total.sulfur.dioxide)+density+pH+log(sulphates)+alcohol, data = wineData[-fold3, ], method = "anova", cp=my.cp)
+
+wine.tree.cross.4 <- rpart(quality ~ fixed.acidity+volatile.acidity+citric.acid+log(residual.sugar)+log(chlorides)+log(free.sulfur.dioxide)+log(total.sulfur.dioxide)+density+pH+log(sulphates)+alcohol, data = wineData[-fold4, ], method = "anova", cp=my.cp)
+
+wine.tree.cross.5 <- rpart(quality ~ fixed.acidity+volatile.acidity+citric.acid+log(residual.sugar)+log(chlorides)+log(free.sulfur.dioxide)+log(total.sulfur.dioxide)+density+pH+log(sulphates)+alcohol, data = wineData[-fold5, ], method = "anova", cp=my.cp)
+```
+```{r}
+cross1 <- predict(wine.tree.cross.1, newdata = wineData[fold1,])
+cross1 <- (wineData[fold1, ]$quality - cross1) ^ 2
+
+cross2 <- predict(wine.tree.cross.2, newdata = wineData[fold2,])
+cross2 <- (wineData[fold2, ]$quality - cross2) ^ 2
+
+cross3 <- predict(wine.tree.cross.3, newdata = wineData[fold3,])
+cross3 <- (wineData[fold3, ]$quality - cross3) ^ 2
+
+cross4 <- predict(wine.tree.cross.4, newdata = wineData[fold4,])
+cross4 <- (wineData[fold4, ]$quality - cross4) ^ 2
+
+cross5 <- predict(wine.tree.cross.5, newdata = wineData[fold5,])
+cross5 <- (wineData[fold5, ]$quality - cross5) ^ 2
+```
+```{r}
+tree.err.sq <- c(cross1, cross2, cross3, cross4, cross5)
+(wine.tree.MSE <- mean(tree.err.sq) )
+```
+
+
+```{r}
+wine.forest.cross.1 <- randomForest(quality ~ ., data = wineData[-fold1,-13], xtest = wineData[fold1,1:11])
+
+wine.forest.cross.2 <- randomForest(quality ~ ., data = wineData[-fold2,-13], xtest = wineData[fold2,1:11])
+
+wine.forest.cross.3 <- randomForest(quality ~ ., data = wineData[-fold3,-13], xtest = wineData[fold3,1:11])
+
+wine.forest.cross.4 <- randomForest(quality ~ ., data = wineData[-fold4,-13], xtest = wineData[fold4,1:11])
+
+wine.forest.cross.5 <- randomForest(quality ~ ., data = wineData[-fold5,-13], xtest = wineData[fold5,1:11])
+
+forest.err.sq <- c(wine.forest.cross.1$mse, wine.forest.cross.2$mse, wine.forest.cross.3$mse, wine.forest.cross.4$mse, wine.forest.cross.5$mse)
+(wine.forest.MSE <- mean(forest.err.sq))
+```
+
+The random forest method gives a lower MSE under cross-validation.
